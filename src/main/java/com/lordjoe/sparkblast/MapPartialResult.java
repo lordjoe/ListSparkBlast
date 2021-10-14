@@ -23,10 +23,16 @@ public class MapPartialResult implements PairFlatMapFunction<String, Integer, St
     @Override
     public Iterable<Tuple2<Integer, String>> call(String s) throws Exception {
         List<Tuple2<Integer, String>> ret = new ArrayList<Tuple2<Integer, String>>();
-        StringBuilder sb = new StringBuilder();
+         StringBuilder sb = new StringBuilder();
         Integer order = null;
         String[] lines = s.split("\n");
-        for (int i = 0; i < lines.length; i++) {
+        int i = 0;
+        String l = lines[i++];
+        while (!l.startsWith("Query="))  {
+            l = lines[i++];
+        }
+        i--;
+        for (; i < lines.length; i++) {
             String line = lines[i];
             if (line.startsWith("Query=")) {
                 if(order != null) {
@@ -35,12 +41,15 @@ public class MapPartialResult implements PairFlatMapFunction<String, Integer, St
                 else {
                     if(sb.length() > 0) {
                          String sx = sb.toString();
-                         if(sx.startsWith("Query"))
+                         if(sx.startsWith("Query")  && !sx.contains("Length=0\n"))
                              throw new UnsupportedOperationException("Fix This"); // ToDo
                     }
                 }
                 sb = new StringBuilder();
-                sb.append(line.trim());
+
+                String trim = line.trim();
+                trim = trim.replace("tr|>sp|>gi|","gi"); // not sure why these are added
+                sb.append(trim);
                 sb.append("\n");
                 String quuryText = line.substring("Query=".length());
                 line = lines[++i];
@@ -50,8 +59,9 @@ public class MapPartialResult implements PairFlatMapFunction<String, Integer, St
                     quuryText += line;
                     line = lines[++i];
                 }
-               sb.append(line.trim());
+                sb.append(line.trim());
                 sb.append("\n");
+                boolean isZeroLength = line.equals("Length=0")  ;
 
                 order = ordering.get(HeaderOrder.stripNonLettersAndNumbers(quuryText)) ;
                 int next = quuryText.indexOf(">") ;
@@ -63,7 +73,7 @@ public class MapPartialResult implements PairFlatMapFunction<String, Integer, St
                     if(order != null )
                         break;
                 }
-                if(order == null && next == -1)
+                if(order == null && next == -1 && !isZeroLength)
                     throw new UnsupportedOperationException("Fix This"); // ToDo
               }
             else {
@@ -96,22 +106,40 @@ public class MapPartialResult implements PairFlatMapFunction<String, Integer, St
         List<Integer> keys = new ArrayList(inv.keySet());
         Collections.sort(keys);
         for (Integer key : keys) {
-            s.add(inv.get(key));
+            String e = inv.get(key);
+            if(e.contains(" Database"))
+                e = e.substring(0,e.indexOf(" Database") - 1) ;
+            s.add(e);
         }
         return s;
     }
 
-    public static String extractHeader(String file) {
+    public static String extractHeaderAndFooter(String file,String[] footerHolder) {
         StringBuilder sb = new StringBuilder();
+        StringBuilder sb2 = new StringBuilder();
         String[] lines = file.split("\n");
-        for (int i = 0; i < lines.length; i++) {
+        int i = 0;
+        for ( ; i < lines.length; i++) {
             String line = lines[i];
             if (line.startsWith("Query=")) {
-                return sb.toString();
+                break;
             }
             sb.append(line);
             sb.append("\n");
         }
+        for ( ; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.startsWith("  Database:")) {
+                break;
+            }
+          }
+        for ( ; i < lines.length; i++) {
+            String line = lines[i];
+            sb2.append(line);
+            sb2.append("\n");
+        }
+        footerHolder[0] = sb2.toString();
+
         return sb.toString();
 
 
@@ -126,15 +154,17 @@ public class MapPartialResult implements PairFlatMapFunction<String, Integer, St
         String[] files = dir.list();
 
         String header = null;
+        String footer = null;
+        String[] footerHolder  = new String[1];
         for (String file : files) {
             if(file.startsWith("part"))   {
                 File f = new File(dir,file);
                 String contents = Utilities.readInFile(f);
-                header = extractHeader(contents) ;
+                 header = extractHeaderAndFooter(contents,footerHolder) ;
                 break;
             }
         }
-
+        footer =  footerHolder[0];
         List<Tuple2<Integer, String>> tuples = new ArrayList<>();
         for (String file : files) {
             if(file.startsWith("part"))   {
@@ -151,12 +181,26 @@ public class MapPartialResult implements PairFlatMapFunction<String, Integer, St
          }) ;
          List<String> queries = fromTuples(tuples);
 
-
-        PrintWriter pw = new PrintWriter(new File(args[2])) ;
-        pw.println(header);
-        for (String query : queries) {
-            pw.println(query);
+        File outdir = null;
+        String outFileName = args[2];
+        File outf = new File(outFileName);
+       int index = outFileName.lastIndexOf("/");
+        if(index > -1)   {
+            outdir = new File(outFileName.substring(0,index));
+            outFileName = outFileName.substring(index + 1);
+            outf = new File(outdir,outFileName);
         }
+        PrintWriter pw = new PrintWriter(outf) ;
+        pw.print(header);
+        for (String query : queries) {
+            if(!query.startsWith("Query="))
+                throw new UnsupportedOperationException("Fix This"); // ToDo
+            if(query.startsWith("  Database:")) {
+               continue;
+            }
+             pw.print(query);
+        }
+        pw.print(footer);
         pw.close();
 
     }

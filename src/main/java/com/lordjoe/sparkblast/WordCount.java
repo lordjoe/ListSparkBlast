@@ -11,6 +11,7 @@ import org.apache.spark.api.java.function.PairFunction;
 import scala.Option;
 import scala.Tuple2;
 
+import java.io.File;
 import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.util.*;
@@ -67,7 +68,8 @@ public class WordCount {
                             items[i] = items[i].toUpperCase();
 
                         }
-                        return  (Iterable<String>)Arrays.asList(items).iterator();
+                        Iterable<String> iterator = Arrays.asList(items) ;
+                        return   iterator;
                     }
                 });
         // Transform into word and count.
@@ -85,7 +87,10 @@ public class WordCount {
         Map<String, Integer> asMap = counts.collectAsMap();
         List<String> wordsFound = new ArrayList<>(asMap.keySet());
         Collections.sort(wordsFound);
-        PrintWriter out = new PrintWriter(new FileWriter(outputFile));
+        File dir = new File("answers");
+        dir.mkdirs();
+        File outf = new File(dir,outputFile);
+        PrintWriter out = new PrintWriter(new FileWriter(outf));
         for (String s : wordsFound) {
             out.println(s + ":" + asMap.get(s));
         }
