@@ -35,6 +35,10 @@ public class CompareRuns {
         addItem(strings2,line2);
         while(line1 != null) {
             if(!line1.equals(line2))   {
+                while(line1.startsWith("Query=") && line2.equals("")) {
+                    line2 = rdr2.readLine();
+                    addItem(strings2,line2);
+                }
                 // query lines might break in strange places
                 if(line1.startsWith("Query=") && line2.startsWith("Query="))  {
                     String line1x = rdr1.readLine();

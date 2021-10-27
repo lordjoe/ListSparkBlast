@@ -9,10 +9,17 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.storage.StorageLevel;
 import scala.Option;
+import scala.Tuple2;
 
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 
 /**
@@ -21,9 +28,9 @@ import java.util.Map;
  * Date: 6/21/2021
  */
 public class BlastRunner {
-    public static final BlastRunner[] EMPTY_ARRAY = {};
+    public static final Random RND = new Random();
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         SparkConf conf2 = new SparkConf();
 
         Option<String> option = conf2.getOption("spark.master");
@@ -82,6 +89,7 @@ public class BlastRunner {
 //        repartitionDataset = Utilities.view(sc,repartitionDataset );
 
         JavaRDD<String> pipe = repartitionDataset.pipe(script);
+
      //   pipe = Utilities.view(sc,pipe );
 //        pipe = pipe.persist(StorageLevel.MEMORY_AND_DISK());
 //        String header = findHeader(pipe.first()) ;
@@ -102,9 +110,99 @@ public class BlastRunner {
 //        }) ;
 //        JavaPairRDD<Integer, String> integerStringJavaPairRDD = identifiedFinds.sortByKey();
 
-        pipe.saveAsTextFile(args[3]);
-        sc.stop();
+        MapQueries operator = new MapQueries(ordering);
 
+        JavaRDD<String> persist = pipe.persist(StorageLevel.MEMORY_AND_DISK());
+        String tempName = Integer.toString(Math.abs(RND.nextInt())) ;
+
+        JavaPairRDD<String, String> headAndFoot = persist.flatMapToPair(new GetHeaderAndFooter());
+
+        List<Tuple2<String, String>> collect1 = headAndFoot.collect();
+        String footer = "";
+        String header = "";
+        for (Tuple2<String, String> ts : collect1) {
+            String id = ts._1;
+            String value = ts._2;
+            if(id.equals(GetHeaderAndFooter.Footer))
+                footer = value;
+            if(id.equals(GetHeaderAndFooter.Header))
+                header = value;
+        }
+
+        persist = persist.coalesce(1); //we need to handle this on one machine
+        JavaPairRDD<Integer, String> queries = persist.flatMapToPair(operator);
+   //     List<Tuple2<Integer, String>> collect1 = queries.collect();
+
+        queries = queries.persist(StorageLevel.MEMORY_AND_DISK());
+
+  //      List<Tuple2<Integer, String>> collect1 = queries.collect();
+        
+        JavaPairRDD<Integer, String> sorted = queries.sortByKey();
+  //       sorted = sorted.persist(StorageLevel.MEMORY_AND_DISK());
+  //      List<Tuple2<Integer, String>> collect2 = sorted.collect();
+
+        JavaPairRDD<Integer, String> writer = sorted.coalesce(1);
+  //      writer = writer.persist(StorageLevel.MEMORY_AND_DISK());
+  //      List<Tuple2<Integer, String>> collect3 = writer.collect();
+
+        BlastWriter outMap = new BlastWriter(outfile,header,ordering.size());
+
+        JavaRDD<Object> map = writer.map(outMap);
+        map.collect(); // force map to happen
+
+        PrintWriter pw = new PrintWriter(new FileWriter(outfile,true)) ;
+        pw.println(footer);
+        pw.close();
+
+        sc.stop();
+     }
+
+    private static void writeTempFile(String tempName, List<String> collect) {
+        try {
+            boolean inHeader = true;
+            boolean inFooter = false;
+
+            File f = new File(tempName + ".header");
+            File f2 = new File(tempName + ".footer");
+            PrintWriter pw = new PrintWriter(new FileWriter(f)) ;
+            for (String line : collect) {
+                if (inHeader) {
+                    if (line.startsWith("Query=")) {
+                        inHeader = false;
+                        pw.close();
+                    }
+                    else {
+                        pw.println(line);
+                    }
+                 }
+                else {
+                    if (inFooter) {
+                        if (line.startsWith("BLAST")) {
+                            pw.close();
+                            return;
+                        }
+                        else {
+                            pw.println(line);
+                        }
+                    }
+                    else {
+                        if (line.contains("Database:")) {
+                            pw = new PrintWriter(new FileWriter(f2));
+                            inFooter = true;
+                            pw.println(line);
+                        }
+ 
+                    }
+                 }
+             }
+            pw.close();
+        }
+
+
+        catch (IOException e) {
+            throw new RuntimeException(e);
+
+        }
     }
 
     private static String findHeader(String first) {

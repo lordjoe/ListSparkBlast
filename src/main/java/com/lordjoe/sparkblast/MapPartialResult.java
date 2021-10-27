@@ -15,77 +15,115 @@ import java.util.*;
  */
 public class MapPartialResult implements PairFlatMapFunction<String, Integer, String> {
     public final Map<String, Integer> ordering;
+    private StringBuilder sb = new StringBuilder();
+    private StringBuilder ob = new StringBuilder();
+    private Integer order = null;
+    private boolean inquery = false;
+    private boolean querySeen = false;
+    private boolean inorder = false;
+    private boolean isZeroLength   = true;
+
+    private String orderTest;
 
     MapPartialResult(Map<String, Integer> m_ordering) {
         ordering = m_ordering;
     }
 
+    public static Integer findOrder(StringBuilder ob,Map<String, Integer> ordering)    {
+        String qt = ob.toString();
+        String o = HeaderOrder.stripNonLettersAndNumbers(qt);
+        if(o.startsWith("TR"))
+            o = o.substring(2);
+        if(o.startsWith("SP"))
+            o = o.substring(2);
+
+        Integer order = ordering.get(o) ;
+        if(order == null) {
+            String orderTest = qt;
+        }
+        if(order != null)
+            ob.setLength(0);
+        return  order;
+    }
+
     @Override
-    public Iterable<Tuple2<Integer, String>> call(String s) throws Exception {
-        List<Tuple2<Integer, String>> ret = new ArrayList<Tuple2<Integer, String>>();
-         StringBuilder sb = new StringBuilder();
-        Integer order = null;
-        String[] lines = s.split("\n");
+    public Iterable<Tuple2<Integer, String>> call(String line) throws Exception {
+        List<Tuple2<Integer, String>> tuple2s = new ArrayList<Tuple2<Integer, String>>();
         int i = 0;
-        String l = lines[i++];
-        while (!l.startsWith("Query="))  {
-            l = lines[i++];
-        }
-        i--;
-        for (; i < lines.length; i++) {
-            String line = lines[i];
-            if (line.startsWith("Query=")) {
-                if(order != null) {
-                    ret.add(new Tuple2<>(order, sb.toString())) ;
-                }
-                else {
-                    if(sb.length() > 0) {
-                         String sx = sb.toString();
-                         if(sx.startsWith("Query")  && !sx.contains("Length=0\n"))
-                             throw new UnsupportedOperationException("Fix This"); // ToDo
-                    }
-                }
-                sb = new StringBuilder();
 
-                String trim = line.trim();
-                trim = trim.replace("tr|>sp|>gi|","gi"); // not sure why these are added
-                sb.append(trim);
-                sb.append("\n");
-                String quuryText = line.substring("Query=".length());
-                line = lines[++i];
-                while(!line.startsWith("Length="))  {
-                     sb.append(line.trim());
-                    sb.append("\n");
-                    quuryText += line;
-                    line = lines[++i];
-                }
-                sb.append(line.trim());
-                sb.append("\n");
-                boolean isZeroLength = line.equals("Length=0")  ;
+        if(line.startsWith("Sbjct  23   DAPGSVNKLDTKTVANLG----EALNVLEKQSELKGLLLRSAK-TALIVGAD----ITEF  73"))
+            i = 0;
+ 
+        if(line.contains("Length="))
+           isZeroLength = line.equals("Length=0")  ;
+          if(querySeen && line.contains("Database:")) {
+               String s = sb.toString();
+               if(order == null)
+                   order = findOrder(ob,ordering) ;
+            if(order != null && !isZeroLength) {
+                String qt = ob.toString();
 
-                order = ordering.get(HeaderOrder.stripNonLettersAndNumbers(quuryText)) ;
-                int next = quuryText.indexOf(">") ;
-                while(order == null && next> -1)  {
-                    quuryText = quuryText.substring(next + 1);
-                     next = quuryText.indexOf(">") ;
-                    String o = HeaderOrder.stripNonLettersAndNumbers(quuryText);
-                    order = ordering.get(o) ;
-                    if(order != null )
-                        break;
-                }
-                if(order == null && next == -1 && !isZeroLength)
-                    throw new UnsupportedOperationException("Fix This"); // ToDo
-              }
-            else {
-                sb.append(line);
-                sb.append("\n");
+                if(order != null && order > 3590)
+                    qt = ob.toString();
+                tuple2s.add(new Tuple2<>(order, s));
+                sb.setLength(0);
+                order = null;
+                inquery = false;
             }
+            else {
+                inquery = false;
+                i = 0;
+            }
+        }
+        if (!line.startsWith("Query=") )  {
+            if(line.contains("gi|490646412|ref|WP_004511407.1"))
+                   i = 0;
 
+            if(inquery)   {
+               sb.append(line + "\n");
+           }
+           if(inorder)  {
+               String added = line.trim();
+               if(added.equals("")) {
+                  order =  findOrder(ob,ordering) ;
+                  if(order != null && order > 3590)
+                      inorder = false;
+
+                   inorder = false;
+               }
+               else {
+                   ob.append(line);
+               }
+           }
         }
-        if(order != null) {
-            ret.add(new Tuple2<>(order, sb.toString())) ;
+        else {    // Line starts Query=
+            querySeen = true;
+            String s = sb.toString();
+
+            if(s.contains("490646412"))
+                i = 0;
+            if(s.contains("490646408"))
+                i = 0;
+            if(order != null && !isZeroLength) {
+                tuple2s.add(new Tuple2<>(order, s));
+              }
+            sb.setLength(0);
+            String trim = line.trim();
+            trim = trim.replace("tr|>sp|>gi|","gi"); // not sure why these are added
+            sb.append(trim);
+            sb.append("\n");
+            isZeroLength = false;
+            String quuryText = line.substring("Query=".length());
+            ob.append(quuryText);
+            inorder = true;
+            inquery = true;
+            order = ordering.get(HeaderOrder.stripNonLettersAndNumbers(quuryText)) ;
+            if(order != null && order > 3590)
+                inorder = true;
+            if(order == null)
+                order = ordering.get(HeaderOrder.stripNonLettersAndNumbers(quuryText)) ;
         }
-        return ret;
+        return tuple2s;
     }
 
     public static Map<Integer, String> invert(Iterable<Tuple2<Integer, String>> l) {
@@ -141,9 +179,7 @@ public class MapPartialResult implements PairFlatMapFunction<String, Integer, St
         footerHolder[0] = sb2.toString();
 
         return sb.toString();
-
-
-    }
+     }
 
     public static void main(String[] args) throws Exception {
         File fasta = new File(args[0]);
