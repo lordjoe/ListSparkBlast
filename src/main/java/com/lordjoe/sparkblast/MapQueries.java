@@ -19,9 +19,7 @@ public class MapQueries implements PairFlatMapFunction<String, Integer, String> 
     private StringBuilder ob = new StringBuilder();
     private Integer order = null;
     private boolean inquery = false;
-    private boolean querySeen = false;
-    private boolean inorder = false;
-    private boolean inLast = false;
+     private boolean inorder = false;
 
     private String orderTest;
 
@@ -34,8 +32,8 @@ public class MapQueries implements PairFlatMapFunction<String, Integer, String> 
     public Iterable<Tuple2<Integer, String>> call(String line) throws Exception {
 
         List<Tuple2<Integer, String>> tuple2s = new ArrayList<Tuple2<Integer, String>>();
-        if(inLast)
-            System.out.println(line);
+ //       if(inLast)
+//            System.out.println(line);
 
         if (line.startsWith("Effective search space used:")) {
             sb.append(line);
@@ -53,13 +51,8 @@ public class MapQueries implements PairFlatMapFunction<String, Integer, String> 
         }
 
         if (line.startsWith("Query=")) {
-            if(inLast)
-                throw new UnsupportedOperationException("Fix This"); // ToDo
-            if(line.contains("490646408"))
-                inLast = true;
 
-            querySeen = true;
-            sb.setLength(0);
+             sb.setLength(0);
             String trim = line.trim();
             trim = trim.replace("tr|>sp|>gi|", "gi"); // not sure why these are added
             sb.append(trim);
